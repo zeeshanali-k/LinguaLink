@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./gradlew :composeApp:compileKotlinJvm *)",
+      "Bash(./gradlew :composeApp:compileKotlin *)",
+      "Bash(./gradlew :composeApp:run)",
+      "Bash(kill %1)"
+    ]
+  }
+}

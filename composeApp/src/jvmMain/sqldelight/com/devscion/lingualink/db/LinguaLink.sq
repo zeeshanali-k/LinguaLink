@@ -1,0 +1,47 @@
+CREATE TABLE sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_type TEXT NOT NULL,
+    source_language TEXT NOT NULL,
+    target_language TEXT NOT NULL,
+    started_at INTEGER NOT NULL,
+    ended_at INTEGER,
+    duration_seconds INTEGER
+);
+
+CREATE TABLE messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    speaker TEXT NOT NULL,
+    original_text TEXT NOT NULL,
+    translated_text TEXT NOT NULL,
+    source_language TEXT NOT NULL,
+    target_language TEXT NOT NULL,
+    confidence REAL,
+    created_at INTEGER NOT NULL
+);
+
+selectAllSessions:
+SELECT * FROM sessions ORDER BY started_at DESC;
+
+selectSessionById:
+SELECT * FROM sessions WHERE id = ?;
+
+selectMessagesBySession:
+SELECT * FROM messages WHERE session_id = ? ORDER BY created_at ASC;
+
+insertSession:
+INSERT INTO sessions(session_type, source_language, target_language, started_at)
+VALUES (?, ?, ?, ?);
+
+closeSession:
+UPDATE sessions SET ended_at = ?, duration_seconds = ? WHERE id = ?;
+
+insertMessage:
+INSERT INTO messages(session_id, speaker, original_text, translated_text, source_language, target_language, confidence, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+lastInsertRowId:
+SELECT last_insert_rowid();
+
+deleteSession:
+DELETE FROM sessions WHERE id = ?;
