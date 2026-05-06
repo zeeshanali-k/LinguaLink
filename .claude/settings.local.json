@@ -4,7 +4,12 @@
       "Bash(./gradlew :composeApp:compileKotlinJvm *)",
       "Bash(./gradlew :composeApp:compileKotlin *)",
       "Bash(./gradlew :composeApp:run)",
-      "Bash(kill %1)"
+      "Bash(kill %1)",
+      "WebFetch(domain:api.anthropic.com)",
+      "Read(//private/tmp/lingualink-design/**)",
+      "Bash(gunzip -k design.bin -c)",
+      "Bash(mkdir -p contents)",
+      "Bash(tar -xf extracted -C contents)"
     ]
   }
 }
