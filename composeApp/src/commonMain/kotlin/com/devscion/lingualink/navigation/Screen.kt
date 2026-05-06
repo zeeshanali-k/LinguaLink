@@ -6,6 +6,7 @@ sealed class Screen(val route: String) {
     object Setup : Screen("setup")
     object Home : Screen("home")
     object History : Screen("history")
+    object Settings : Screen("settings")
 }
 
 @Serializable
