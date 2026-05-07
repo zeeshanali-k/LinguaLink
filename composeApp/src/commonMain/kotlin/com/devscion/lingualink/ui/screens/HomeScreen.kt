@@ -163,15 +163,17 @@ fun HomeScreen(
                         HeroHeadline(compact = compact)
 
                         // Language pair card
+                        // "You Speak" → sourceLang (your mic / chat input language).
+                        // "They Speak" → targetLang (the translation output for the other party).
                         LangPairCard(
-                            youSpeak = tgt.name,
-                            youSpeakNative = "${tgt.nativeName} · ${tgt.code.uppercase()}",
-                            theySpeak = src.name,
-                            theySpeakNative = "${src.nativeName} · ${src.code.uppercase()}",
-                            onPickYou = { code -> vm.targetLang = code },
-                            onPickThem = { code -> vm.sourceLang = code },
-                            currentYou = tgt.code,
-                            currentThem = src.code,
+                            youSpeak = src.name,
+                            youSpeakNative = "${src.nativeName} · ${src.code.uppercase()}",
+                            theySpeak = tgt.name,
+                            theySpeakNative = "${tgt.nativeName} · ${tgt.code.uppercase()}",
+                            onPickYou = { code -> vm.sourceLang = code },
+                            onPickThem = { code -> vm.targetLang = code },
+                            currentYou = src.code,
+                            currentThem = tgt.code,
                             onSwap = { vm.swapLanguages() },
                             compact = compact,
                         )

@@ -6,6 +6,7 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -17,6 +18,8 @@ import com.devscion.lingualink.data.repository.SessionRepository
 import com.devscion.lingualink.navigation.CallRoute
 import com.devscion.lingualink.navigation.ChatRoute
 import com.devscion.lingualink.navigation.Screen
+import com.devscion.lingualink.network.LlmClient
+import com.devscion.lingualink.network.TtsClient
 import com.devscion.lingualink.ui.screens.*
 import com.devscion.lingualink.ui.theme.LinguaLinkTheme
 import com.devscion.lingualink.ui.theme.LocalAnimatedVisibilityScope
@@ -30,6 +33,18 @@ fun App() {
     LinguaLinkTheme {
         val navController = rememberNavController()
         val configManager: ConfigManager = koinInject()
+        val llmClient: LlmClient = koinInject()
+        val ttsClient: TtsClient = koinInject()
+
+        LaunchedEffect(Unit) {
+            configManager.load()?.let { cfg ->
+                if (cfg.llmApiKey.isNotBlank()) {
+                    llmClient.configure(cfg.llmBaseUrl, cfg.llmApiKey, cfg.llmModel)
+                }
+                ttsClient.configure(cfg.deepgramApiKey)
+            }
+        }
+
         val startDest = if (configManager.isConfigured()) Screen.Home.route else Screen.Setup.route
 
         SharedTransitionLayout {

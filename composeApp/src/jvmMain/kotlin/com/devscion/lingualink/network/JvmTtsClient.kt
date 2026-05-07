@@ -7,33 +7,26 @@ import io.ktor.http.*
 import kotlinx.serialization.Serializable
 
 @Serializable
-private data class TtsRequest(
-    val text: String,
-    val model_id: String = "eleven_turbo_v2",
-    val voice_settings: VoiceSettings = VoiceSettings()
-)
-
-@Serializable
-private data class VoiceSettings(
-    val stability: Double = 0.5,
-    val similarity_boost: Double = 0.75
-)
+private data class SpeakRequest(val text: String)
 
 class JvmTtsClient(private val httpClient: HttpClient) : TtsClient {
 
     private var apiKey: String = ""
 
-    override fun configure(key: String) { apiKey = key }
+    override fun configure(apiKey: String) {
+        this.apiKey = apiKey.trim()
+    }
 
     override fun isConfigured(): Boolean = apiKey.isNotBlank()
 
-    override suspend fun synthesize(text: String, voiceId: String): ByteArray? {
-        if (apiKey.isBlank() || text.isBlank()) return null
+    override suspend fun synthesize(text: String, voiceModel: String): ByteArray? {
+        if (apiKey.isBlank() || text.isBlank() || voiceModel.isBlank()) return null
         return try {
-            httpClient.post("https://api.elevenlabs.io/v1/text-to-speech/$voiceId") {
-                header("xi-api-key", apiKey)
+            httpClient.post("https://api.deepgram.com/v1/speak") {
+                parameter("model", voiceModel)
+                header("Authorization", "Token $apiKey")
                 contentType(ContentType.Application.Json)
-                setBody(TtsRequest(text = text.take(500)))
+                setBody(SpeakRequest(text = text.take(2000)))
             }.body<ByteArray>()
         } catch (e: Exception) {
             println("TTS error (non-fatal): ${e.message}")

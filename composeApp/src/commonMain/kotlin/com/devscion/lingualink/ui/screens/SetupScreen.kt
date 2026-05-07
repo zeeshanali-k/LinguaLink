@@ -14,7 +14,6 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Router
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -62,21 +61,29 @@ class SetupViewModel(
     private val configManager: ConfigManager
 ) : ViewModel() {
 
-    var dropletUrl by mutableStateOf("")
+    private val defaultConfig = ConfigManager.AppConfig()
+
+    var llmBaseUrl by mutableStateOf(defaultConfig.llmBaseUrl)
+    var llmApiKey by mutableStateOf("")
+    var llmModel by mutableStateOf(defaultConfig.llmModel)
     var deepgramKey by mutableStateOf("")
-    var elevenLabsKey by mutableStateOf("")
     var testStatus by mutableStateOf<String?>(null)
     var isTesting by mutableStateOf(false)
     var isSaving by mutableStateOf(false)
 
-    val canSave get() = dropletUrl.isNotBlank() && deepgramKey.isNotBlank()
+    val canSave
+        get() = llmBaseUrl.isNotBlank() &&
+                llmApiKey.isNotBlank() &&
+                llmModel.isNotBlank() &&
+                deepgramKey.isNotBlank()
 
     init {
         val cfg = configManager.load()
         if (cfg != null) {
-            dropletUrl = cfg.amdDropletBaseUrl
+            llmBaseUrl = cfg.llmBaseUrl.ifBlank { defaultConfig.llmBaseUrl }
+            llmApiKey = cfg.llmApiKey
+            llmModel = cfg.llmModel.ifBlank { defaultConfig.llmModel }
             deepgramKey = cfg.deepgramApiKey
-            elevenLabsKey = cfg.elevenlabsApiKey
         }
     }
 
@@ -85,7 +92,7 @@ class SetupViewModel(
         testStatus = null
         viewModelScope.launch {
             try {
-                llmClient.configure(dropletUrl)
+                llmClient.configure(llmBaseUrl, llmApiKey, llmModel)
                 val response = llmClient.chat("ping", "Reply with the single word: pong")
                 testStatus = if (response.isNotBlank()) "ok" else "error: empty response"
             } catch (e: Exception) {
@@ -100,13 +107,14 @@ class SetupViewModel(
         isSaving = true
         viewModelScope.launch {
             val config = ConfigManager.AppConfig(
-                amdDropletBaseUrl = dropletUrl,
-                deepgramApiKey = deepgramKey,
-                elevenlabsApiKey = elevenLabsKey
+                llmBaseUrl = llmBaseUrl,
+                llmApiKey = llmApiKey,
+                llmModel = llmModel,
+                deepgramApiKey = deepgramKey
             )
             configManager.save(config)
-            llmClient.configure(dropletUrl)
-            ttsClient.configure(elevenLabsKey)
+            llmClient.configure(llmBaseUrl, llmApiKey, llmModel)
+            ttsClient.configure(deepgramKey)
             isSaving = false
             onSuccess()
         }
@@ -151,14 +159,46 @@ fun SetupScreen(vm: SetupViewModel, onSaved: () -> Unit, onBack: (() -> Unit)? =
                             FieldGroup(
                                 icon = Icons.Default.Router,
                                 accent = LL.tokens.cyan,
-                                label = "AMD droplet base URL",
-                                hint = "Where your translation LLM is running.",
+                                label = "Fireworks AI base URL",
+                                hint = "Default works for the AMD-hosted Fireworks endpoint.",
                                 required = true,
                             ) {
                                 ConfigField(
-                                    value = vm.dropletUrl,
-                                    onValueChange = { vm.dropletUrl = it },
-                                    placeholder = "http://192.168.x.x:8000",
+                                    value = vm.llmBaseUrl,
+                                    onValueChange = { vm.llmBaseUrl = it },
+                                    placeholder = "https://api.fireworks.ai/inference",
+                                    keyboardType = KeyboardType.Uri,
+                                    isPassword = false,
+                                )
+                            }
+
+                            FieldGroup(
+                                icon = Icons.Default.Key,
+                                accent = LL.tokens.cyan,
+                                label = "Fireworks AI API key",
+                                hint = "Bearer token from your Fireworks AI account.",
+                                required = true,
+                            ) {
+                                ConfigField(
+                                    value = vm.llmApiKey,
+                                    onValueChange = { vm.llmApiKey = it },
+                                    placeholder = "fw_…",
+                                    keyboardType = KeyboardType.Password,
+                                    isPassword = true,
+                                )
+                            }
+
+                            FieldGroup(
+                                icon = Icons.Default.AutoAwesome,
+                                accent = LL.tokens.violet,
+                                label = "Fireworks model",
+                                hint = "Full model path, e.g. accounts/fireworks/models/llama-v3p1-8b-instruct.",
+                                required = true,
+                            ) {
+                                ConfigField(
+                                    value = vm.llmModel,
+                                    onValueChange = { vm.llmModel = it },
+                                    placeholder = "accounts/fireworks/models/…",
                                     keyboardType = KeyboardType.Uri,
                                     isPassword = false,
                                 )
@@ -168,29 +208,13 @@ fun SetupScreen(vm: SetupViewModel, onSaved: () -> Unit, onBack: (() -> Unit)? =
                                 icon = Icons.Default.Mic,
                                 accent = LL.tokens.violet,
                                 label = "Deepgram API key",
-                                hint = "Used for streaming speech-to-text.",
+                                hint = "Powers both speech-to-text and translated voice playback.",
                                 required = true,
                             ) {
                                 ConfigField(
                                     value = vm.deepgramKey,
                                     onValueChange = { vm.deepgramKey = it },
                                     placeholder = "Your Deepgram key",
-                                    keyboardType = KeyboardType.Password,
-                                    isPassword = true,
-                                )
-                            }
-
-                            FieldGroup(
-                                icon = Icons.Default.RecordVoiceOver,
-                                accent = LL.tokens.amber,
-                                label = "ElevenLabs API key",
-                                hint = "Optional. Leave blank to disable spoken translations.",
-                                required = false,
-                            ) {
-                                ConfigField(
-                                    value = vm.elevenLabsKey,
-                                    onValueChange = { vm.elevenLabsKey = it },
-                                    placeholder = "Optional",
                                     keyboardType = KeyboardType.Password,
                                     isPassword = true,
                                 )

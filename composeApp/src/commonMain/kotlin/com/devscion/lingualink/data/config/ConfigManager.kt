@@ -6,9 +6,10 @@ interface ConfigManager {
 
     @Serializable
     data class AppConfig(
-        val amdDropletBaseUrl: String = "",
+        val llmBaseUrl: String = "https://api.fireworks.ai/inference",
+        val llmApiKey: String = "",
+        val llmModel: String = "accounts/fireworks/models/llama-v3p1-8b-instruct",
         val deepgramApiKey: String = "",
-        val elevenlabsApiKey: String = "",
         val sourceLanguage: String = "en",
         val targetLanguage: String = "ur"
     )

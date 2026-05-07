@@ -409,7 +409,7 @@ private fun ApiConfigEntry(onClick: () -> Unit) {
             Column(modifier = Modifier.weight(1f)) {
                 Text("API configuration", color = t.text0, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 Text(
-                    "Update the AMD droplet URL, Deepgram, and ElevenLabs keys.",
+                    "Update the Fireworks AI endpoint and Deepgram key.",
                     color = t.text2,
                     fontSize = 12.sp,
                     lineHeight = 17.sp,

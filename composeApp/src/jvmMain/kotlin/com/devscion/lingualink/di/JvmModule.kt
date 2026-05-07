@@ -32,10 +32,13 @@ val jvmPlatformModule = module {
     single {
         HttpClient(OkHttp) {
             install(ContentNegotiation) {
-                json(Json { ignoreUnknownKeys = true; isLenient = true })
+                json(Json {
+                    ignoreUnknownKeys = true
+                    isLenient = true
+                })
             }
             install(WebSockets)
-            install(Logging) { level = LogLevel.INFO }
+            install(Logging) { level = LogLevel.ALL }
         }
     }
 

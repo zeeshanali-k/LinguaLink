@@ -58,6 +58,8 @@ kotlin {
             // SQLDelight
             implementation(libs.sqldelight.sqlite.driver)
             implementation(libs.sqldelight.coroutines)
+
+            implementation("org.slf4j:slf4j-simple:2.0.9")
         }
     }
 }

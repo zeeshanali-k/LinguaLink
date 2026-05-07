@@ -20,6 +20,9 @@ class JvmConfigManager : ConfigManager {
 
     override fun isConfigured(): Boolean {
         val cfg = load() ?: return false
-        return cfg.amdDropletBaseUrl.isNotBlank() && cfg.deepgramApiKey.isNotBlank()
+        return cfg.llmBaseUrl.isNotBlank() &&
+                cfg.llmApiKey.isNotBlank() &&
+                cfg.llmModel.isNotBlank() &&
+                cfg.deepgramApiKey.isNotBlank()
     }
 }

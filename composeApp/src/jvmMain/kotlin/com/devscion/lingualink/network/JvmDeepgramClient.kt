@@ -16,26 +16,43 @@ class JvmDeepgramClient(private val httpClient: HttpClient) : AsrClient {
         languageCode: String
     ): Flow<TranscriptResult> = flow {
 
+        println("[ASR] streamTranscription")
         httpClient.webSocket(
             urlString = buildDeepgramUrl(languageCode),
             request = { headers.append("Authorization", "Token $apiKey") }
         ) {
             // Send audio chunks in a child coroutine (DefaultClientWebSocketSession is a CoroutineScope)
+            var chunksSent = 0
             val senderJob = launch {
                 try {
                     audioChunks.collect { chunk ->
+                        println("[ASR] Chunk received: ${chunk.size}")
                         send(Frame.Binary(fin = true, data = chunk))
+                        chunksSent++
+                        if (chunksSent % 50 == 0) println("[ASR] sent $chunksSent audio chunks to Deepgram")
                     }
+                    println("[ASR] Close Stream Sending")
                     send(Frame.Text("""{"type":"CloseStream"}"""))
-                } catch (_: Exception) {}
+                } catch (e: Exception) {
+                    println("[ASR] sender error: ${e.message}")
+                }
             }
 
             try {
                 for (frame in incoming) {
                     when (frame) {
-                        is Frame.Text -> parseTranscriptResult(frame.readText())?.let { emit(it) }
-                        is Frame.Close -> break
-                        else -> Unit
+                        is Frame.Text -> {
+                            val text = frame.readText()
+                            println("[ASR] received: ${text.take(300)}")
+                            parseTranscriptResult(text)?.let { emit(it) }
+                        }
+                        is Frame.Close -> {
+                            println("[ASR] WebSocket closed by server")
+                            break
+                        }
+                        else -> {
+                            println("[ASR] WebSocket other frame received-> $frame")
+                        }
                     }
                 }
             } finally {
@@ -46,7 +63,7 @@ class JvmDeepgramClient(private val httpClient: HttpClient) : AsrClient {
 
     private fun buildDeepgramUrl(languageCode: String) =
         "wss://api.deepgram.com/v1/listen" +
-        "?encoding=linear16&sample_rate=16000&channels=1" +
+        "?model=nova-3&encoding=linear16&sample_rate=16000&channels=1" +
         "&language=$languageCode&punctuate=true&interim_results=true&endpointing=300"
 
     private fun parseTranscriptResult(json: String): TranscriptResult? = try {
