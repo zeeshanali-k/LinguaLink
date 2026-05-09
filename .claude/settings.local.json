@@ -12,7 +12,19 @@
       "Bash(tar -xf extracted -C contents)",
       "WebFetch(domain:developers.deepgram.com)",
       "Bash(grep -E \"\\\\.kt$\")",
-      "Bash(xargs cat *)"
+      "Bash(xargs cat *)",
+      "Bash(curl -sL \"https://api.anthropic.com/v1/design/h/xcMqG7uutOiwJ1SEmukBMg?open_file=LinguaLink+Pitch+Deck.html\")",
+      "Bash(gunzip)",
+      "Bash(curl -sL --compressed \"https://api.anthropic.com/v1/design/h/xcMqG7uutOiwJ1SEmukBMg?open_file=LinguaLink+Pitch+Deck.html\")",
+      "Bash(tar -tf /tmp/lingualink-handoff.tar)",
+      "Bash(tar *)",
+      "Bash(mdfind \"kMDItemKind == 'Application'\")",
+      "Bash(python3 -c \"import weasyprint; print\\('weasyprint available'\\)\")",
+      "Bash(python3 -c \"from reportlab.lib.pagesizes import A4; print\\('reportlab available'\\)\")",
+      "Bash(python3 -c \"import pdfkit; print\\('pdfkit available'\\)\")",
+      "Bash(npx puppeteer *)",
+      "Bash(npx playwright *)",
+      "Bash(npm list *)"
     ]
   }
 }

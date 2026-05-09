@@ -91,10 +91,7 @@ class SessionDetailsViewModel(
         currentPlaybackJob = viewModelScope.launch {
             playingMessageId = message.id
             try {
-                val voice = deepgramVoiceFor(message.speaker, message.targetLanguage) ?: run {
-                    println("[Replay] no Deepgram voice for ${message.targetLanguage}")
-                    return@launch
-                }
+                val voice = deepgramVoiceFor(message.speaker, message.targetLanguage)
                 val bytes = ttsClient.synthesize(message.translatedText, voice) ?: return@launch
                 audioPlayer.playAudioStream(bytes)
             } finally {

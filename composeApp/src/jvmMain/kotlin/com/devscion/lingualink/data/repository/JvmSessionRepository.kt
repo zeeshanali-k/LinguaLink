@@ -10,13 +10,24 @@ class JvmSessionRepository(private val db: LinguaLinkDB) : SessionRepository {
 
     override suspend fun createSession(type: SessionType, sourceLang: String, targetLang: String): Long =
         withContext(Dispatchers.IO) {
-            db.linguaLinkQueries.insertSession(
-                session_type = type.name.lowercase(),
-                source_language = sourceLang,
-                target_language = targetLang,
-                started_at = System.currentTimeMillis()
-            )
-            db.linguaLinkQueries.lastInsertRowId().executeAsOne()
+            // Wrap INSERT + last_insert_rowid() in a transaction so both statements
+            // execute on the same JDBC connection. Without a transaction the driver
+            // may dispatch them to different pooled connections, causing
+            // last_insert_rowid() to return a stale row-id from a previous INSERT
+            // (e.g. a message row), which then makes getMessagesBySession() load
+            // messages that belong to that old session.
+            var newId = -1L
+            db.linguaLinkQueries.transaction {
+                db.linguaLinkQueries.insertSession(
+                    session_type = type.name.lowercase(),
+                    source_language = sourceLang,
+                    target_language = targetLang,
+                    started_at = System.currentTimeMillis()
+                )
+                newId = db.linguaLinkQueries.lastInsertRowId().executeAsOne()
+            }
+            println("[DB] createSession → id=$newId type=${type.name} $sourceLang→$targetLang")
+            newId
         }
 
     override suspend fun closeSession(id: Long, durationSeconds: Long) = withContext(Dispatchers.IO) {

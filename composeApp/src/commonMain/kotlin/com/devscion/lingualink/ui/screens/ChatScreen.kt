@@ -65,6 +65,7 @@ import com.devscion.lingualink.ui.theme.SharedKeys
 import com.devscion.lingualink.ui.theme.glass
 import com.devscion.lingualink.ui.theme.sharedAcrossScreens
 import com.devscion.lingualink.ui.theme.sharedBoundsAcrossScreens
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 class ChatViewModel(
@@ -86,11 +87,12 @@ class ChatViewModel(
     private var sessionId = -1L
     private var sessionStartTime = 0L
     private var deepgramApiKey: String = ""
-    private var initialized = false
+    private var dbLoadJob: Job? = null
+    private var collectJob: Job? = null
 
     fun initialize(sessionId: Long, sourceLang: String, targetLang: String, config: ConfigManager.AppConfig) {
-        if (initialized && this.sessionId == sessionId) return
-        initialized = true
+        if (this.sessionId == sessionId && dbLoadJob?.isActive == false && collectJob?.isActive == true) return
+
         this.sessionId = sessionId
         this.sourceLang = sourceLang
         this.targetLang = targetLang
@@ -99,8 +101,16 @@ class ChatViewModel(
         messages.clear()
         pipeline.configure(sessionId, sourceLang, targetLang, config.deepgramApiKey)
 
-        viewModelScope.launch { messages.addAll(messageRepo.getMessagesBySession(sessionId)) }
-        viewModelScope.launch {
+        dbLoadJob?.cancel()
+        dbLoadJob = viewModelScope.launch {
+            val loaded = messageRepo.getMessagesBySession(sessionId)
+            println("[ChatVM] session=$sessionId loaded ${loaded.size} messages from DB")
+            messages.clear()
+            messages.addAll(loaded)
+        }
+
+        collectJob?.cancel()
+        collectJob = viewModelScope.launch {
             pipeline.messages.collect { msg ->
                 if (msg.sessionId != sessionId) return@collect
                 messageRepo.insertMessage(msg)
