@@ -9,6 +9,7 @@ import com.devscion.lingualink.network.AsrClient
 import com.devscion.lingualink.network.ChatMessage
 import com.devscion.lingualink.network.LlmClient
 import com.devscion.lingualink.network.TtsClient
+import com.devscion.lingualink.network.deepgramVoiceFor
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
@@ -38,6 +39,7 @@ class TranslationPipeline(
     private var deepgramApiKey: String = ""
     private var currentSpeaker: Speaker = Speaker.USER_A
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     fun configure(
         sessionId: Long,
         sourceLang: String,
@@ -45,15 +47,23 @@ class TranslationPipeline(
         deepgramApiKey: String,
         speaker: Speaker = Speaker.USER_A
     ) {
+        // Cancel any in-flight work from a previous session and reset transient state
+        // so a fresh session doesn't show stale subtitles/audio level from the last one.
+        activeJob?.cancel()
+        activeJob = null
         this.sessionId = sessionId
         this.sourceLang = sourceLang
         this.targetLang = targetLang
         this.deepgramApiKey = deepgramApiKey
         this.currentSpeaker = speaker
         conversationHistory.clear()
+        _messages.resetReplayCache()
+        _state.value = PipelineState.Idle
+        _audioLevel.value = 0f
     }
 
     fun startVoiceTranslation(audioCapture: AudioCapture) {
+        println("[ASR] startVoiceTranslation")
         activeJob?.cancel()
         activeJob = scope.launch {
             _state.value = PipelineState.Listening
@@ -69,6 +79,7 @@ class TranslationPipeline(
                 apiKey = deepgramApiKey,
                 languageCode = deepgramCodeFor(sourceLang)
             ).collect { result ->
+                println("[Pipeline] transcript (final=${result.isFinal}): \"${result.text}\"")
                 if (!result.isFinal) {
                     _state.value = PipelineState.Transcribing(result.text)
                 } else {
@@ -82,6 +93,7 @@ class TranslationPipeline(
     }
 
     fun stopVoiceTranslation(audioCapture: AudioCapture) {
+        println("[ASR] stopVoiceTranslation")
         audioCapture.stopCapture()
         activeJob?.cancel()
         _state.value = PipelineState.Idle
@@ -89,6 +101,7 @@ class TranslationPipeline(
     }
 
     fun translateText(inputText: String) {
+        println("[ASR] translateText")
         if (inputText.isBlank()) return
         activeJob?.cancel()
         activeJob = scope.launch {
@@ -122,8 +135,10 @@ class TranslationPipeline(
             _messages.emit(message)
 
             _state.value = PipelineState.Speaking(translatedText)
-            val voiceId = if (currentSpeaker == Speaker.USER_A) TtsClient.VOICE_USER_A else TtsClient.VOICE_USER_B
-            val audioBytes = ttsClient.synthesize(translatedText, voiceId)
+            val voiceModel = deepgramVoiceFor(currentSpeaker, targetLang)
+            println("[Pipeline] TTS voice for $currentSpeaker→$targetLang = $voiceModel")
+            val audioBytes = voiceModel?.let { ttsClient.synthesize(translatedText, it) }
+            println("[Pipeline] TTS bytes received: ${audioBytes?.size ?: "null"}")
             audioBytes?.let { audioPlayer.playAudioStream(it) }
 
             _state.value = if (isVoice) PipelineState.Listening else PipelineState.Idle

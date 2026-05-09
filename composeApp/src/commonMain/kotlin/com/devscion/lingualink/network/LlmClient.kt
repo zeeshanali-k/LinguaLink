@@ -1,7 +1,7 @@
 package com.devscion.lingualink.network
 
 interface LlmClient {
-    fun configure(dropletBaseUrl: String)
+    fun configure(baseUrl: String, apiKey: String, model: String)
     fun isConfigured(): Boolean
     suspend fun translate(
         text: String,

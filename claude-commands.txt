@@ -1,1 +1,2 @@
-claude --resume d37c0e8c-6bb1-4464-9bfc-2ad4380bdabb
+Architecture: claude --resume d37c0e8c-6bb1-4464-9bfc-2ad4380bdabb
+Design: claude --resume 5837402b-9f6e-4526-964b-2219bac5243b

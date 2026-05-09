@@ -78,17 +78,31 @@ class ChatViewModel(
     var inputText by mutableStateOf("")
     var isTranslating by mutableStateOf(false)
 
+    var sourceLang by mutableStateOf("en")
+        private set
+    var targetLang by mutableStateOf("ur")
+        private set
+
     private var sessionId = -1L
     private var sessionStartTime = 0L
+    private var deepgramApiKey: String = ""
+    private var initialized = false
 
     fun initialize(sessionId: Long, sourceLang: String, targetLang: String, config: ConfigManager.AppConfig) {
+        if (initialized && this.sessionId == sessionId) return
+        initialized = true
         this.sessionId = sessionId
+        this.sourceLang = sourceLang
+        this.targetLang = targetLang
+        this.deepgramApiKey = config.deepgramApiKey
         sessionStartTime = System.currentTimeMillis()
+        messages.clear()
         pipeline.configure(sessionId, sourceLang, targetLang, config.deepgramApiKey)
 
         viewModelScope.launch { messages.addAll(messageRepo.getMessagesBySession(sessionId)) }
         viewModelScope.launch {
             pipeline.messages.collect { msg ->
+                if (msg.sessionId != sessionId) return@collect
                 messageRepo.insertMessage(msg)
                 messages.add(msg)
                 isTranslating = false
@@ -103,7 +117,12 @@ class ChatViewModel(
         inputText = ""
     }
 
-    fun swapLanguages() = pipeline.swapLanguages()
+    fun swapLanguages() {
+        val tmp = sourceLang
+        sourceLang = targetLang
+        targetLang = tmp
+        pipeline.configure(sessionId, sourceLang, targetLang, deepgramApiKey)
+    }
 
     fun endSession(onEnded: () -> Unit) {
         val duration = (System.currentTimeMillis() - sessionStartTime) / 1000
@@ -134,8 +153,9 @@ fun ChatScreen(
         if (vm.messages.isNotEmpty()) listState.animateScrollToItem(vm.messages.size - 1)
     }
 
-    val srcLang = languageByCode(sourceLang)
-    val tgtLang = languageByCode(targetLang)
+    // Read languages from VM so swaps update the UI immediately.
+    val srcLang = languageByCode(vm.sourceLang)
+    val tgtLang = languageByCode(vm.targetLang)
 
     Box(modifier = Modifier.fillMaxSize()) {
         AmbientMeshBackground(modifier = Modifier.fillMaxSize())

@@ -45,7 +45,7 @@ LinguaLink is a **Kotlin Multiplatform real-time voice & text translation deskto
 | `AudioPlayer` | `JvmAudioPlayer` (javax.sound.sampled) |
 | `AsrClient` | `JvmDeepgramClient` (Ktor WebSocket) |
 | `LlmClient` | `JvmLlmClient` (Ktor HTTP, OpenAI-compatible) |
-| `TtsClient` | `JvmTtsClient` (Ktor HTTP, ElevenLabs) |
+| `TtsClient` | `JvmTtsClient` (Ktor HTTP, Deepgram `/v1/speak` aura-2 voices) |
 | `SessionRepository` | `JvmSessionRepository` (SQLDelight) |
 | `MessageRepository` | `JvmMessageRepository` (SQLDelight) |
 | `ConfigManager` | `JvmConfigManager` (java.io.File → ~/.lingualink/config.json) |
@@ -69,8 +69,11 @@ TranslationPipeline: AsrClient → LlmClient → TtsClient → AudioPlayer
 ### Config
 
 Config persists to `~/.lingualink/config.json` via `JvmConfigManager`.
-Fields: `amdDropletBaseUrl`, `deepgramApiKey`, `elevenlabsApiKey`, `sourceLanguage`, `targetLanguage`.
-App navigates to SetupScreen if `amdDropletBaseUrl` or `deepgramApiKey` is blank.
+Fields: `llmBaseUrl`, `llmApiKey`, `llmModel`, `deepgramApiKey`, `sourceLanguage`, `targetLanguage`.
+LLM defaults target the AMD-hosted **Fireworks AI** endpoint (`https://api.fireworks.ai/inference`, model `accounts/fireworks/models/llama-v3p1-8b-instruct`).
+The single `deepgramApiKey` powers both ASR (`/v1/listen`) and TTS (`/v1/speak`).
+App navigates to SetupScreen if `llmBaseUrl`, `llmApiKey`, `llmModel`, or `deepgramApiKey` is blank.
+On startup, `App.kt` re-applies saved config to `LlmClient` and `TtsClient` via a `LaunchedEffect`.
 
 ### Database
 
@@ -82,8 +85,8 @@ DB file created at `~/.lingualink/lingualink.db` on first run.
 | Service | Client | Protocol |
 |---------|--------|----------|
 | Deepgram (ASR) | `JvmDeepgramClient` | WebSocket streaming (wss://api.deepgram.com/v1/listen) |
-| AMD Droplet (LLM translation) | `JvmLlmClient` | OpenAI-compatible REST POST /v1/chat/completions |
-| ElevenLabs (TTS) | `JvmTtsClient` | REST POST /v1/text-to-speech/{voice_id} |
+| Fireworks AI (LLM translation, AMD-hosted) | `JvmLlmClient` | OpenAI-compatible REST POST /v1/chat/completions with `Authorization: Bearer` |
+| Deepgram (TTS) | `JvmTtsClient` | REST POST /v1/speak?model=aura-2-* with `Authorization: Token` (returns MP3) |
 
 ## Key Technology Choices
 

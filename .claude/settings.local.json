@@ -9,7 +9,10 @@
       "Read(//private/tmp/lingualink-design/**)",
       "Bash(gunzip -k design.bin -c)",
       "Bash(mkdir -p contents)",
-      "Bash(tar -xf extracted -C contents)"
+      "Bash(tar -xf extracted -C contents)",
+      "WebFetch(domain:developers.deepgram.com)",
+      "Bash(grep -E \"\\\\.kt$\")",
+      "Bash(xargs cat *)"
     ]
   }
 }

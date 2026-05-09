@@ -17,7 +17,7 @@ class JvmAudioCapture : AudioCapture {
     private val _audioLevel = MutableStateFlow(0f)
     override val audioLevel: StateFlow<Float> = _audioLevel
 
-    override val isCapturing: Boolean get() = targetLine?.isActive == true
+    override val isCapturing: Boolean get() = targetLine?.isOpen == true
 
     override fun isMicAvailable(): Boolean {
         val info = DataLine.Info(TargetDataLine::class.java, AUDIO_FORMAT)
@@ -25,6 +25,7 @@ class JvmAudioCapture : AudioCapture {
     }
 
     override fun startCapture(scope: CoroutineScope) {
+        println("[Mic] startCapture called")
         val info = DataLine.Info(TargetDataLine::class.java, AUDIO_FORMAT)
         if (!AudioSystem.isLineSupported(info)) {
             throw IllegalStateException("Microphone not supported on this system")
@@ -34,21 +35,30 @@ class JvmAudioCapture : AudioCapture {
             targetLine = (AudioSystem.getLine(info) as TargetDataLine).also { line ->
                 line.open(AUDIO_FORMAT)
                 line.start()
+                println("[Mic] line opened: format=${line.format}, isActive=${line.isActive}, isOpen=${line.isOpen}")
             }
         } catch (e: LineUnavailableException) {
             throw IllegalStateException("Microphone unavailable: ${e.message}")
         }
 
         captureJob = scope.launch(Dispatchers.IO) {
+            println("[Mic] capture loop started (coroutineActive=$isActive, lineOpen=${targetLine?.isOpen})")
             val buffer = ByteArray(CHUNK_SIZE_BYTES)
-            while (isActive && targetLine?.isActive == true) {
+            var totalChunks = 0
+            while (isActive && targetLine?.isOpen == true) {
                 val bytesRead = targetLine!!.read(buffer, 0, buffer.size)
+                if (bytesRead < 0) break
                 if (bytesRead > 0) {
                     val chunk = buffer.copyOf(bytesRead)
-                    _audioChunks.trySend(chunk)
+                    val sendResult = _audioChunks.trySend(chunk)
+                    totalChunks++
+                    if (totalChunks <= 3 || totalChunks % 50 == 0) {
+                        println("[Mic] chunk #$totalChunks: ${bytesRead}B, trySend.isSuccess=${sendResult.isSuccess}")
+                    }
                     _audioLevel.value = calculateLevel(chunk)
                 }
             }
+            println("[Mic] capture loop exited (coroutineActive=$isActive, lineOpen=${targetLine?.isOpen}, totalChunks=$totalChunks)")
         }
     }
 

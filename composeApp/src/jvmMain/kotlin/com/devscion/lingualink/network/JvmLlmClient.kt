@@ -5,14 +5,14 @@ import io.ktor.client.call.*
 import io.ktor.client.request.*
 import io.ktor.http.*
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 
 @Serializable
 private data class ChatRequest(
-    val model: String = "default",
+    val model: String,
     val messages: List<ChatMessageDto>,
     val max_tokens: Int = 512,
     val temperature: Double = 0.2,
+    val top_p: Double = 1.0,
     val stream: Boolean = false
 )
 
@@ -28,12 +28,17 @@ private data class ChatResponse(val choices: List<Choice>) {
 class JvmLlmClient(private val httpClient: HttpClient) : LlmClient {
 
     private var baseUrl: String = ""
+    private var apiKey: String = ""
+    private var model: String = ""
 
-    override fun configure(dropletBaseUrl: String) {
-        baseUrl = dropletBaseUrl.trimEnd('/')
+    override fun configure(baseUrl: String, apiKey: String, model: String) {
+        this.baseUrl = baseUrl.trimEnd('/')
+        this.apiKey = apiKey.trim()
+        this.model = model.trim()
     }
 
-    override fun isConfigured(): Boolean = baseUrl.isNotBlank()
+    override fun isConfigured(): Boolean =
+        baseUrl.isNotBlank() && apiKey.isNotBlank() && model.isNotBlank()
 
     override suspend fun translate(
         text: String,
@@ -48,8 +53,10 @@ class JvmLlmClient(private val httpClient: HttpClient) : LlmClient {
             add(ChatMessageDto("user", text))
         }
         val response: ChatResponse = httpClient.post("$baseUrl/v1/chat/completions") {
+            header("Authorization", "Bearer $apiKey")
+            header("Accept", "application/json")
             contentType(ContentType.Application.Json)
-            setBody(ChatRequest(messages = messages))
+            setBody(ChatRequest(model = model, messages = messages))
         }.body()
         return response.choices.firstOrNull()?.message?.content?.trim()
             ?: throw IllegalStateException("Empty response from LLM")
@@ -63,8 +70,10 @@ class JvmLlmClient(private val httpClient: HttpClient) : LlmClient {
             add(ChatMessageDto("user", userMessage))
         }
         val response: ChatResponse = httpClient.post("$baseUrl/v1/chat/completions") {
+            header("Authorization", "Bearer $apiKey")
+            header("Accept", "application/json")
             contentType(ContentType.Application.Json)
-            setBody(ChatRequest(messages = messages))
+            setBody(ChatRequest(model = model, messages = messages))
         }.body()
         return response.choices.firstOrNull()?.message?.content?.trim() ?: ""
     }

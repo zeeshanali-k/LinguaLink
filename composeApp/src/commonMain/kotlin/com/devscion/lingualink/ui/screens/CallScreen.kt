@@ -27,12 +27,9 @@ import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
-import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.SecurityUpdateGood
-import androidx.compose.material.icons.filled.VolumeUp
-import androidx.compose.material.icons.filled.Videocam
-import androidx.compose.material.icons.filled.VideocamOff
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -58,7 +55,6 @@ import androidx.lifecycle.viewModelScope
 import com.devscion.lingualink.audio.AudioCapture
 import com.devscion.lingualink.data.config.ConfigManager
 import com.devscion.lingualink.data.model.ConversationMessage
-import com.devscion.lingualink.data.model.Speaker
 import com.devscion.lingualink.data.model.languageByCode
 import com.devscion.lingualink.data.repository.MessageRepository
 import com.devscion.lingualink.data.repository.SessionRepository
@@ -102,8 +98,15 @@ class CallViewModel(
     var isListening by mutableStateOf(false)
         private set
 
+    var sourceLang by mutableStateOf("en")
+        private set
+    var targetLang by mutableStateOf("ur")
+        private set
+
     private var sessionId = -1L
     private var sessionStartTime = 0L
+    private var deepgramApiKey: String = ""
+    private var initialized = false
 
     fun initialize(
         sessionId: Long,
@@ -111,8 +114,17 @@ class CallViewModel(
         targetLang: String,
         config: ConfigManager.AppConfig
     ) {
+        if (initialized && this.sessionId == sessionId) return
+        initialized = true
         this.sessionId = sessionId
+        this.sourceLang = sourceLang
+        this.targetLang = targetLang
+        this.deepgramApiKey = config.deepgramApiKey
         sessionStartTime = System.currentTimeMillis()
+
+        // Defensive: a brand-new VM owns its own list, but reset just in case
+        // initialize is invoked twice for any reason.
+        messages.clear()
 
         pipeline.configure(
             sessionId = sessionId,
@@ -127,6 +139,7 @@ class CallViewModel(
 
         viewModelScope.launch {
             pipeline.messages.collect { msg ->
+                if (msg.sessionId != sessionId) return@collect
                 messageRepo.insertMessage(msg)
                 messages.add(msg)
             }
@@ -144,7 +157,22 @@ class CallViewModel(
         }
     }
 
-    fun swapLanguages() = pipeline.swapLanguages()
+    fun swapLanguages() {
+        // Stop any ongoing capture so we don't keep streaming the previous source language.
+        if (isListening) {
+            pipeline.stopVoiceTranslation(audioCapture)
+            isListening = false
+        }
+        val tmp = sourceLang
+        sourceLang = targetLang
+        targetLang = tmp
+        pipeline.configure(
+            sessionId = sessionId,
+            sourceLang = sourceLang,
+            targetLang = targetLang,
+            deepgramApiKey = deepgramApiKey,
+        )
+    }
 
     fun endSession(onEnded: () -> Unit) {
         if (isListening) {
@@ -172,8 +200,10 @@ fun CallScreen(
 ) {
     val state by vm.pipelineState.collectAsState()
 
+    val config = remember { configManager.load() ?: ConfigManager.AppConfig() }
+    val modelDisplayName = remember(config.llmModel) { config.llmModel.substringAfterLast('/') }
+
     LaunchedEffect(sessionId) {
-        val config = configManager.load() ?: ConfigManager.AppConfig()
         vm.initialize(sessionId, sourceLang, targetLang, config)
     }
 
@@ -187,12 +217,14 @@ fun CallScreen(
         }
     }
 
-    val srcLang = languageByCode(sourceLang)
-    val tgtLang = languageByCode(targetLang)
+    // Reactive languages — read from VM so swaps propagate to the UI immediately.
+    val srcLang = languageByCode(vm.sourceLang)
+    val tgtLang = languageByCode(vm.targetLang)
 
-    // Speaker activity inferred from pipeline state.
-    val theirSpeaking = state is PipelineState.Listening || state is PipelineState.Transcribing
-    val yourSpeaking = state is PipelineState.Speaking
+    // Activity inferred from pipeline state.
+    // You = mic user, speaking sourceLang. They = listener, hearing the targetLang TTS.
+    val youSpeaking = state is PipelineState.Listening || state is PipelineState.Transcribing
+    val theySpeaking = state is PipelineState.Speaking
 
     // Subtitle text (the "headline" caption underneath the orb)
     val partial = (state as? PipelineState.Transcribing)?.partial.orEmpty()
@@ -215,13 +247,10 @@ fun CallScreen(
 
             Column(modifier = Modifier.fillMaxSize()) {
                 CallTopbar(
-                    callerName = "Speaker · ${srcLang.name}",
-                    callerSub = "${srcLang.code.uppercase()} · live translation",
-                    callerInitials = srcLang.code.uppercase(),
-                    callerBrush = brushForLang(srcLang.code, primary = true),
                     timerText = formatTime(elapsedSeconds),
                     sourceCode = srcLang.code.uppercase(),
                     targetCode = tgtLang.code.uppercase(),
+                    modelName = modelDisplayName,
                     onBack = onBack,
                     onSwap = { vm.swapLanguages() },
                     compact = compact,
@@ -237,44 +266,45 @@ fun CallScreen(
                 ) {
                     PeerHeader(
                         theirName = "Speaker",
-                        theirInitials = srcLang.code.uppercase(),
-                        theirBrush = brushForLang(srcLang.code, primary = true),
-                        theirLang = srcLang.name,
-                        theySpeaking = theirSpeaking,
+                        theirInitials = tgtLang.code.uppercase(),
+                        theirBrush = brushForLang(tgtLang.code, primary = true),
+                        theirLang = tgtLang.name,
+                        theySpeaking = theySpeaking,
                         yourName = "You",
-                        yourInitials = tgtLang.code.uppercase(),
-                        yourBrush = brushForLang(tgtLang.code, primary = false),
-                        yourLang = tgtLang.name,
-                        youSpeaking = yourSpeaking,
+                        yourInitials = srcLang.code.uppercase(),
+                        yourBrush = brushForLang(srcLang.code, primary = false),
+                        yourLang = srcLang.name,
+                        youSpeaking = youSpeaking,
                         compact = compact,
                     )
 
                     MetaChipStrip(
                         timer = formatTime(elapsedSeconds),
+                        modelName = modelDisplayName,
                         compact = compact,
                     )
 
                     OrbStage(
                         coreSize = if (veryCompact) 110.dp else if (compact) 140.dp else 180.dp,
                         subtitle = subtitle,
-                        sourceCode = if (yourSpeaking) tgtLang.code.uppercase() else srcLang.code.uppercase(),
-                        targetCode = if (yourSpeaking) srcLang.code.uppercase() else tgtLang.code.uppercase(),
+                        sourceCode = srcLang.code.uppercase(),
+                        targetCode = tgtLang.code.uppercase(),
                         confidence = vm.messages.lastOrNull()?.confidence,
-                        speaking = theirSpeaking || yourSpeaking,
+                        speaking = youSpeaking || theySpeaking,
                         showSubtitle = subtitle.isNotBlank(),
                     )
 
                     TranscriptArea(
                         messages = vm.messages,
-                        theirLang = srcLang.name,
-                        yourLang = tgtLang.name,
+                        sourceLang = srcLang.name,
+                        targetLang = tgtLang.name,
                         compact = compact,
                     )
 
                     WaveformBar(
-                        speakerInitials = if (yourSpeaking) tgtLang.code.uppercase() else srcLang.code.uppercase(),
-                        speaking = theirSpeaking || yourSpeaking,
-                        hue = if (yourSpeaking) Hue.Violet else Hue.Cyan,
+                        speakerInitials = if (theySpeaking) tgtLang.code.uppercase() else srcLang.code.uppercase(),
+                        speaking = youSpeaking || theySpeaking,
+                        hue = if (theySpeaking) Hue.Violet else Hue.Cyan,
                         timer = formatTime(elapsedSeconds),
                     )
                 }
@@ -282,6 +312,7 @@ fun CallScreen(
                 CallControls(
                     listening = vm.isListening,
                     onToggleMic = { vm.toggleListening() },
+                    onSwap = { vm.swapLanguages() },
                     onEnd = { vm.endSession(onBack) },
                     compact = compact,
                 )
@@ -294,13 +325,10 @@ fun CallScreen(
 
 @Composable
 private fun CallTopbar(
-    callerName: String,
-    callerSub: String,
-    callerInitials: String,
-    callerBrush: Brush,
     timerText: String,
     sourceCode: String,
     targetCode: String,
+    modelName: String,
     onBack: () -> Unit,
     onSwap: () -> Unit,
     compact: Boolean,
@@ -321,55 +349,23 @@ private fun CallTopbar(
         ) {
             IconBtn(icon = Icons.AutoMirrored.Filled.ArrowBack, onClick = onBack, contentDescription = "Back")
 
-            // Caller card — right-aligned, hugging the center cluster (matches design)
-            Row(
-                modifier = Modifier.weight(1f),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (!compact) {
-                    Column(horizontalAlignment = Alignment.End) {
-                        Text(callerName, color = t.text0, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                        Text(
-                            callerSub.uppercase(),
-                            color = t.text3,
-                            fontFamily = MonoFamily,
-                            fontSize = 9.5.sp,
-                            letterSpacing = 1.4.sp,
-                            maxLines = 1,
-                        )
-                    }
-                    Spacer(Modifier.width(10.dp))
-                }
-                GradientAvatar(initials = callerInitials, size = 28.dp, brush = callerBrush, live = true)
-            }
-
-            // Center cluster — only on wider widths
+            // Center cluster — live indicator, mini wave, current LLM model
+            Spacer(modifier = Modifier.weight(1f))
+            LiveIndicator(timer = timerText)
             if (!compact) {
-                LiveIndicator(timer = timerText)
                 MiniWave()
-                ModelPill(text = "claude-haiku-4-5", latencyMs = 184, leading = Icons.Default.Memory)
-            } else {
-                LiveIndicator(timer = timerText)
+                ModelPill(text = modelName, leading = Icons.Default.Memory)
             }
+            Spacer(modifier = Modifier.weight(1f))
 
-            // Right
-            Row(
-                modifier = Modifier.weight(1f),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically,
-                content = {
-                    Chip(
-                        text = "$sourceCode → $targetCode",
-                        kind = ChipKind.Violet,
-                        modifier = Modifier.sharedBoundsAcrossScreens(SharedKeys.LANG_PILL),
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    if (!compact) {
-                        IconBtn(icon = Icons.Default.AutoAwesome, onClick = onSwap, contentDescription = "Swap")
-                    }
-                },
+            // Right — language pill + swap
+            Chip(
+                text = "$sourceCode → $targetCode",
+                kind = ChipKind.Violet,
+                modifier = Modifier.sharedBoundsAcrossScreens(SharedKeys.LANG_PILL),
             )
+            Spacer(Modifier.width(6.dp))
+            IconBtn(icon = Icons.Default.SwapHoriz, onClick = onSwap, contentDescription = "Swap languages")
         }
         GlowDivider(modifier = Modifier.fillMaxWidth())
     }
@@ -608,7 +604,7 @@ private fun bezierPoint(
 // ───────────────────────────── Chip strip ─────────────────────────────
 
 @Composable
-private fun MetaChipStrip(timer: String, compact: Boolean) {
+private fun MetaChipStrip(timer: String, modelName: String, compact: Boolean) {
     val arr = if (compact) Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally) else Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -616,7 +612,7 @@ private fun MetaChipStrip(timer: String, compact: Boolean) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Chip(text = "LIVE", kind = ChipKind.Live)
-        Chip(text = "CLAUDE-HAIKU-4-5 · 184ms", kind = ChipKind.Cyan, leading = Icons.Default.Memory)
+        Chip(text = modelName.uppercase(), kind = ChipKind.Cyan, leading = Icons.Default.Memory)
         Chip(text = timer)
         if (!compact) {
             Chip(text = "end-to-end encrypted", kind = ChipKind.Violet, leading = Icons.Default.SecurityUpdateGood)
@@ -685,7 +681,7 @@ private fun SubtitleBubble(
             )
             Text("·", color = t.text3, fontSize = 10.sp)
             Text(
-                "live · 184ms",
+                "live",
                 color = t.cyan,
                 fontFamily = MonoFamily,
                 fontSize = 10.sp,
@@ -752,22 +748,18 @@ private fun StreamingTokenText(text: String) {
 @Composable
 private fun TranscriptArea(
     messages: List<ConversationMessage>,
-    theirLang: String,
-    yourLang: String,
+    sourceLang: String,
+    targetLang: String,
     compact: Boolean,
 ) {
-    val t = LL.tokens
-    val theirs = messages.filter { it.speaker == Speaker.USER_A }.takeLast(3)
-    val yours = messages.filter { it.speaker == Speaker.USER_B }.takeLast(3)
+    val recent = messages.takeLast(8)
 
     if (compact) {
-        // Single combined column on mobile, sorted by createdAt
-        TranscriptColumn(
+        TranscriptPairColumn(
             modifier = Modifier.fillMaxWidth().height(180.dp),
-            who = "Conversation",
-            lang = "$theirLang ↔ $yourLang",
-            messages = (theirs + yours).sortedBy { it.createdAt }.takeLast(6),
-            mixed = true,
+            sourceLang = sourceLang,
+            targetLang = targetLang,
+            messages = recent.takeLast(4),
         )
     } else {
         Row(
@@ -776,17 +768,17 @@ private fun TranscriptArea(
         ) {
             TranscriptColumn(
                 modifier = Modifier.weight(1f).fillMaxHeight(),
-                who = "Speaker · $theirLang",
-                lang = "ORIGINAL",
-                messages = theirs,
-                mixed = false,
+                who = sourceLang,
+                tag = "TRANSCRIPT",
+                accent = LL.tokens.cyan,
+                lines = recent.map { it.originalText },
             )
             TranscriptColumn(
                 modifier = Modifier.weight(1f).fillMaxHeight(),
-                who = "You · $yourLang",
-                lang = "ORIGINAL",
-                messages = yours,
-                mixed = false,
+                who = targetLang,
+                tag = "TRANSLATION",
+                accent = LL.tokens.violet,
+                lines = recent.map { it.translatedText },
             )
         }
     }
@@ -796,9 +788,9 @@ private fun TranscriptArea(
 private fun TranscriptColumn(
     modifier: Modifier,
     who: String,
-    lang: String,
-    messages: List<ConversationMessage>,
-    mixed: Boolean,
+    tag: String,
+    accent: Color,
+    lines: List<String>,
 ) {
     val t = LL.tokens
     GlassCard(modifier = modifier, contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp)) {
@@ -810,7 +802,70 @@ private fun TranscriptColumn(
             ) {
                 Text(who, color = t.text1, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 Text(
-                    lang,
+                    tag,
+                    color = accent,
+                    fontFamily = MonoFamily,
+                    fontSize = 10.sp,
+                    letterSpacing = 1.2.sp,
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(t.border)
+            )
+            if (lines.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        "Nothing yet",
+                        color = t.text3,
+                        fontSize = 11.sp,
+                        fontFamily = MonoFamily,
+                        letterSpacing = 0.6.sp,
+                    )
+                }
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(top = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    lines.forEach { line ->
+                        Text(
+                            line,
+                            color = t.text0,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            lineHeight = 17.sp,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TranscriptPairColumn(
+    modifier: Modifier,
+    sourceLang: String,
+    targetLang: String,
+    messages: List<ConversationMessage>,
+) {
+    val t = LL.tokens
+    GlassCard(modifier = modifier, contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp)) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Conversation", color = t.text1, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "$sourceLang → $targetLang",
                     color = t.text2,
                     fontFamily = MonoFamily,
                     fontSize = 10.sp,
@@ -826,7 +881,7 @@ private fun TranscriptColumn(
             if (messages.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
-                        "No transcripts yet",
+                        "Nothing yet",
                         color = t.text3,
                         fontSize = 11.sp,
                         fontFamily = MonoFamily,
@@ -839,30 +894,23 @@ private fun TranscriptColumn(
                         .fillMaxWidth()
                         .verticalScroll(rememberScrollState())
                         .padding(top = 6.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     messages.forEach { msg ->
-                        if (mixed) {
-                            val mine = msg.speaker == Speaker.USER_B
-                            Text(
-                                "${if (mine) "You · " else "Speaker · "}${msg.originalText}",
-                                color = if (mine) t.violet else t.cyan,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
-                                lineHeight = 17.sp,
-                            )
-                        } else {
-                            Text(msg.originalText, color = t.text0, fontSize = 12.sp, fontWeight = FontWeight.Medium, lineHeight = 17.sp)
-                        }
+                        Text(
+                            msg.originalText,
+                            color = t.cyan,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            lineHeight = 17.sp,
+                        )
                         Text(
                             "→ ${msg.translatedText}",
-                            color = t.text2,
+                            color = t.violet,
                             fontSize = 11.sp,
                             fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
                             lineHeight = 16.sp,
-                            modifier = Modifier
-                                .padding(start = 10.dp)
-                                .border(1.dp, Color.Transparent)
+                            modifier = Modifier.padding(start = 10.dp),
                         )
                     }
                 }
@@ -923,12 +971,12 @@ private fun WaveformBar(
 private fun CallControls(
     listening: Boolean,
     onToggleMic: () -> Unit,
+    onSwap: () -> Unit,
     onEnd: () -> Unit,
     compact: Boolean,
 ) {
     val t = LL.tokens
     var captionsOn by remember { mutableStateOf(true) }
-    var cameraOn by remember { mutableStateOf(false) }
 
     Row(
         modifier = Modifier
@@ -944,9 +992,9 @@ private fun CallControls(
             onClick = onToggleMic,
         )
         ControlButton(
-            icon = if (cameraOn) Icons.Default.Videocam else Icons.Default.VideocamOff,
-            label = "Camera",
-            onClick = { cameraOn = !cameraOn },
+            icon = Icons.Default.SwapHoriz,
+            label = "Switch",
+            onClick = onSwap,
         )
         ControlButton(
             icon = Icons.Default.ClosedCaption,
@@ -955,20 +1003,10 @@ private fun CallControls(
             onClick = { captionsOn = !captionsOn },
         )
         ControlButton(
-            icon = Icons.Default.VolumeUp,
-            label = "Speaker",
-            onClick = {},
-        )
-        ControlButton(
             icon = Icons.Default.CallEnd,
             label = "End",
             danger = true,
             onClick = onEnd,
-        )
-        ControlButton(
-            icon = Icons.Default.MoreHoriz,
-            label = "More",
-            onClick = {},
         )
     }
 }
