@@ -20,6 +20,11 @@ jobs:
         uses: gradle/gradle-build-action@v3
 
       - name: Build macOS installer
+        env:
+          LINGUALINK_LLM_BASE_URL: ${{ secrets.LINGUALINK_LLM_BASE_URL }}
+          LINGUALINK_LLM_API_KEY: ${{ secrets.LINGUALINK_LLM_API_KEY }}
+          LINGUALINK_LLM_MODEL: ${{ secrets.LINGUALINK_LLM_MODEL }}
+          LINGUALINK_DEEPGRAM_API_KEY: ${{ secrets.LINGUALINK_DEEPGRAM_API_KEY }}
         run: ./gradlew :composeApp:packageDmg
 
       - name: Upload to GitHub Release

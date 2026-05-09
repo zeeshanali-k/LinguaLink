@@ -25,12 +25,36 @@ import com.devscion.lingualink.ui.screens.*
 import com.devscion.lingualink.ui.theme.LinguaLinkTheme
 import com.devscion.lingualink.ui.theme.LocalAnimatedVisibilityScope
 import com.devscion.lingualink.ui.theme.LocalSharedTransitionScope
+import org.koin.compose.getKoin
 import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun App() {
+
+    val koin = getKoin()
+    LaunchedEffect(Unit) {
+        val configManager = koin.get<ConfigManager>()
+        val saved = configManager.load()
+        if (saved == null) {
+            configManager.save(
+                ConfigManager.AppConfig(
+                    llmBaseUrl = BuildEnv.llmBaseUrl.ifBlank { "https://api.fireworks.ai/inference" },
+                    llmApiKey = BuildEnv.llmApiKey,
+                    llmModel = BuildEnv.llmModel.ifBlank { "accounts/fireworks/models/llama-v3p1-8b-instruct" },
+                    deepgramApiKey = BuildEnv.deepgramApiKey,
+                )
+            )
+        } else {
+            // Returning user: only fill in keys the user hasn't entered yet.
+            val merged = saved.copy(
+                llmApiKey = saved.llmApiKey.ifBlank { BuildEnv.llmApiKey },
+                deepgramApiKey = saved.deepgramApiKey.ifBlank { BuildEnv.deepgramApiKey },
+            )
+            if (merged != saved) configManager.save(merged)
+        }
+    }
     LinguaLinkTheme {
         val navController = rememberNavController()
         val configManager: ConfigManager = koinInject()
