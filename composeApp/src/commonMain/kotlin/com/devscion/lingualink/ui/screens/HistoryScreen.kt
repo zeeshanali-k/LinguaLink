@@ -30,7 +30,6 @@ import androidx.compose.ui.unit.sp
 import com.devscion.lingualink.data.model.Session
 import com.devscion.lingualink.data.model.SessionType
 import com.devscion.lingualink.data.model.languageByCode
-import com.devscion.lingualink.data.repository.MessageRepository
 import com.devscion.lingualink.data.repository.SessionRepository
 import com.devscion.lingualink.ui.theme.AmbientMeshBackground
 import com.devscion.lingualink.ui.theme.AvatarBrushes
@@ -51,8 +50,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun HistoryScreen(
     sessionRepo: SessionRepository,
-    messageRepo: MessageRepository,
-    onReopen: (Long, SessionType, String, String) -> Unit,
+    onOpenDetails: (Long) -> Unit,
     onBack: () -> Unit
 ) {
     var sessions by remember { mutableStateOf<List<Session>>(emptyList()) }
@@ -94,9 +92,7 @@ fun HistoryScreen(
                             items(sessions) { session ->
                                 CallCard(
                                     session = session,
-                                    onReopen = {
-                                        onReopen(session.id, session.sessionType, session.sourceLanguage, session.targetLanguage)
-                                    },
+                                    onOpen = { onOpenDetails(session.id) },
                                     onDelete = { deleteTarget = session },
                                     compact = compact,
                                 )
@@ -278,7 +274,7 @@ private fun EmptyHistoryState() {
 @Composable
 private fun CallCard(
     session: Session,
-    onReopen: () -> Unit,
+    onOpen: () -> Unit,
     onDelete: () -> Unit,
     compact: Boolean,
 ) {
@@ -291,7 +287,7 @@ private fun CallCard(
     GlassCard(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onReopen),
+            .clickable(onClick = onOpen),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
     ) {
         Row(
@@ -371,7 +367,7 @@ private fun CallCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    IconBtn(icon = Icons.Default.PlayArrow, onClick = onReopen, contentDescription = "Reopen", size = 26.dp)
+                    IconBtn(icon = Icons.Default.PlayArrow, onClick = onOpen, contentDescription = "Reopen", size = 26.dp)
                     IconBtn(icon = Icons.Default.Delete, onClick = onDelete, contentDescription = "Delete", size = 26.dp)
                 }
             }

@@ -17,6 +17,7 @@ import com.devscion.lingualink.data.repository.MessageRepository
 import com.devscion.lingualink.data.repository.SessionRepository
 import com.devscion.lingualink.navigation.CallRoute
 import com.devscion.lingualink.navigation.ChatRoute
+import com.devscion.lingualink.navigation.DetailsRoute
 import com.devscion.lingualink.navigation.Screen
 import com.devscion.lingualink.network.LlmClient
 import com.devscion.lingualink.network.TtsClient
@@ -137,15 +138,29 @@ fun App() {
                     composable(Screen.History.route) {
                         CompositionLocalProvider(LocalAnimatedVisibilityScope provides this@composable) {
                             val sessionRepo: SessionRepository = koinInject()
-                            val messageRepo: MessageRepository = koinInject()
                             HistoryScreen(
                                 sessionRepo = sessionRepo,
-                                messageRepo = messageRepo,
-                                onReopen = { id, type, src, tgt ->
-                                    if (type == SessionType.CALL) navController.navigate(CallRoute(id, src, tgt))
-                                    else navController.navigate(ChatRoute(id, src, tgt))
-                                },
+                                onOpenDetails = { id -> navController.navigate(DetailsRoute(id)) },
                                 onBack = { navController.popBackStack() }
+                            )
+                        }
+                    }
+
+                    composable<DetailsRoute> { back ->
+                        CompositionLocalProvider(LocalAnimatedVisibilityScope provides this@composable) {
+                            val route = back.toRoute<DetailsRoute>()
+                            val vm: SessionDetailsViewModel = koinViewModel()
+                            SessionDetailsScreen(
+                                sessionId = route.sessionId,
+                                vm = vm,
+                                onBack = { navController.popBackStack() },
+                                onContinue = { session ->
+                                    if (session.sessionType == SessionType.CALL) {
+                                        navController.navigate(CallRoute(session.id, session.sourceLanguage, session.targetLanguage))
+                                    } else {
+                                        navController.navigate(ChatRoute(session.id, session.sourceLanguage, session.targetLanguage))
+                                    }
+                                },
                             )
                         }
                     }

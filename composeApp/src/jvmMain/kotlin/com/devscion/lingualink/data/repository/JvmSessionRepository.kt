@@ -41,6 +41,20 @@ class JvmSessionRepository(private val db: LinguaLinkDB) : SessionRepository {
         }
     }
 
+    override suspend fun getSessionById(id: Long): Session? = withContext(Dispatchers.IO) {
+        db.linguaLinkQueries.selectSessionById(id).executeAsOneOrNull()?.let {
+            Session(
+                id = it.id,
+                sessionType = if (it.session_type == "call") SessionType.CALL else SessionType.CHAT,
+                sourceLanguage = it.source_language,
+                targetLanguage = it.target_language,
+                startedAt = it.started_at,
+                endedAt = it.ended_at,
+                durationSeconds = it.duration_seconds
+            )
+        }
+    }
+
     override suspend fun deleteSession(id: Long) = withContext(Dispatchers.IO) {
         db.linguaLinkQueries.deleteSession(id)
     }

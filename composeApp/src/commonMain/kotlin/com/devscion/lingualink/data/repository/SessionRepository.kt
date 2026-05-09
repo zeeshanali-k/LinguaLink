@@ -7,5 +7,6 @@ interface SessionRepository {
     suspend fun createSession(type: SessionType, sourceLang: String, targetLang: String): Long
     suspend fun closeSession(id: Long, durationSeconds: Long)
     suspend fun getAllSessions(): List<Session>
+    suspend fun getSessionById(id: Long): Session?
     suspend fun deleteSession(id: Long)
 }

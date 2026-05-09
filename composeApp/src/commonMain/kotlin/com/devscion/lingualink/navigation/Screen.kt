@@ -14,3 +14,6 @@ data class CallRoute(val sessionId: Long, val sourceLang: String, val targetLang
 
 @Serializable
 data class ChatRoute(val sessionId: Long, val sourceLang: String, val targetLang: String)
+
+@Serializable
+data class DetailsRoute(val sessionId: Long)

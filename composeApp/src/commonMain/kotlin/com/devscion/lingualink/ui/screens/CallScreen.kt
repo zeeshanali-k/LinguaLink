@@ -27,12 +27,9 @@ import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
-import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.SecurityUpdateGood
-import androidx.compose.material.icons.filled.VolumeUp
-import androidx.compose.material.icons.filled.Videocam
-import androidx.compose.material.icons.filled.VideocamOff
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -101,8 +98,15 @@ class CallViewModel(
     var isListening by mutableStateOf(false)
         private set
 
+    var sourceLang by mutableStateOf("en")
+        private set
+    var targetLang by mutableStateOf("ur")
+        private set
+
     private var sessionId = -1L
     private var sessionStartTime = 0L
+    private var deepgramApiKey: String = ""
+    private var initialized = false
 
     fun initialize(
         sessionId: Long,
@@ -110,8 +114,17 @@ class CallViewModel(
         targetLang: String,
         config: ConfigManager.AppConfig
     ) {
+        if (initialized && this.sessionId == sessionId) return
+        initialized = true
         this.sessionId = sessionId
+        this.sourceLang = sourceLang
+        this.targetLang = targetLang
+        this.deepgramApiKey = config.deepgramApiKey
         sessionStartTime = System.currentTimeMillis()
+
+        // Defensive: a brand-new VM owns its own list, but reset just in case
+        // initialize is invoked twice for any reason.
+        messages.clear()
 
         pipeline.configure(
             sessionId = sessionId,
@@ -126,6 +139,7 @@ class CallViewModel(
 
         viewModelScope.launch {
             pipeline.messages.collect { msg ->
+                if (msg.sessionId != sessionId) return@collect
                 messageRepo.insertMessage(msg)
                 messages.add(msg)
             }
@@ -143,7 +157,22 @@ class CallViewModel(
         }
     }
 
-    fun swapLanguages() = pipeline.swapLanguages()
+    fun swapLanguages() {
+        // Stop any ongoing capture so we don't keep streaming the previous source language.
+        if (isListening) {
+            pipeline.stopVoiceTranslation(audioCapture)
+            isListening = false
+        }
+        val tmp = sourceLang
+        sourceLang = targetLang
+        targetLang = tmp
+        pipeline.configure(
+            sessionId = sessionId,
+            sourceLang = sourceLang,
+            targetLang = targetLang,
+            deepgramApiKey = deepgramApiKey,
+        )
+    }
 
     fun endSession(onEnded: () -> Unit) {
         if (isListening) {
@@ -188,8 +217,9 @@ fun CallScreen(
         }
     }
 
-    val srcLang = languageByCode(sourceLang)
-    val tgtLang = languageByCode(targetLang)
+    // Reactive languages — read from VM so swaps propagate to the UI immediately.
+    val srcLang = languageByCode(vm.sourceLang)
+    val tgtLang = languageByCode(vm.targetLang)
 
     // Activity inferred from pipeline state.
     // You = mic user, speaking sourceLang. They = listener, hearing the targetLang TTS.
@@ -217,10 +247,6 @@ fun CallScreen(
 
             Column(modifier = Modifier.fillMaxSize()) {
                 CallTopbar(
-                    callerName = "Speaker · ${tgtLang.name}",
-                    callerSub = "${tgtLang.code.uppercase()} · live translation",
-                    callerInitials = tgtLang.code.uppercase(),
-                    callerBrush = brushForLang(tgtLang.code, primary = true),
                     timerText = formatTime(elapsedSeconds),
                     sourceCode = srcLang.code.uppercase(),
                     targetCode = tgtLang.code.uppercase(),
@@ -254,6 +280,7 @@ fun CallScreen(
 
                     MetaChipStrip(
                         timer = formatTime(elapsedSeconds),
+                        modelName = modelDisplayName,
                         compact = compact,
                     )
 
@@ -285,6 +312,7 @@ fun CallScreen(
                 CallControls(
                     listening = vm.isListening,
                     onToggleMic = { vm.toggleListening() },
+                    onSwap = { vm.swapLanguages() },
                     onEnd = { vm.endSession(onBack) },
                     compact = compact,
                 )
@@ -297,10 +325,6 @@ fun CallScreen(
 
 @Composable
 private fun CallTopbar(
-    callerName: String,
-    callerSub: String,
-    callerInitials: String,
-    callerBrush: Brush,
     timerText: String,
     sourceCode: String,
     targetCode: String,
@@ -325,55 +349,23 @@ private fun CallTopbar(
         ) {
             IconBtn(icon = Icons.AutoMirrored.Filled.ArrowBack, onClick = onBack, contentDescription = "Back")
 
-            // Caller card — right-aligned, hugging the center cluster (matches design)
-            Row(
-                modifier = Modifier.weight(1f),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (!compact) {
-                    Column(horizontalAlignment = Alignment.End) {
-                        Text(callerName, color = t.text0, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                        Text(
-                            callerSub.uppercase(),
-                            color = t.text3,
-                            fontFamily = MonoFamily,
-                            fontSize = 9.5.sp,
-                            letterSpacing = 1.4.sp,
-                            maxLines = 1,
-                        )
-                    }
-                    Spacer(Modifier.width(10.dp))
-                }
-                GradientAvatar(initials = callerInitials, size = 28.dp, brush = callerBrush, live = true)
-            }
-
-            // Center cluster — only on wider widths
+            // Center cluster — live indicator, mini wave, current LLM model
+            Spacer(modifier = Modifier.weight(1f))
+            LiveIndicator(timer = timerText)
             if (!compact) {
-                LiveIndicator(timer = timerText)
                 MiniWave()
                 ModelPill(text = modelName, leading = Icons.Default.Memory)
-            } else {
-                LiveIndicator(timer = timerText)
             }
+            Spacer(modifier = Modifier.weight(1f))
 
-            // Right
-            Row(
-                modifier = Modifier.weight(1f),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically,
-                content = {
-                    Chip(
-                        text = "$sourceCode → $targetCode",
-                        kind = ChipKind.Violet,
-                        modifier = Modifier.sharedBoundsAcrossScreens(SharedKeys.LANG_PILL),
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    if (!compact) {
-                        IconBtn(icon = Icons.Default.AutoAwesome, onClick = onSwap, contentDescription = "Swap")
-                    }
-                },
+            // Right — language pill + swap
+            Chip(
+                text = "$sourceCode → $targetCode",
+                kind = ChipKind.Violet,
+                modifier = Modifier.sharedBoundsAcrossScreens(SharedKeys.LANG_PILL),
             )
+            Spacer(Modifier.width(6.dp))
+            IconBtn(icon = Icons.Default.SwapHoriz, onClick = onSwap, contentDescription = "Swap languages")
         }
         GlowDivider(modifier = Modifier.fillMaxWidth())
     }
@@ -612,7 +604,7 @@ private fun bezierPoint(
 // ───────────────────────────── Chip strip ─────────────────────────────
 
 @Composable
-private fun MetaChipStrip(timer: String, compact: Boolean) {
+private fun MetaChipStrip(timer: String, modelName: String, compact: Boolean) {
     val arr = if (compact) Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally) else Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -620,7 +612,7 @@ private fun MetaChipStrip(timer: String, compact: Boolean) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Chip(text = "LIVE", kind = ChipKind.Live)
-        Chip(text = "CLAUDE-HAIKU-4-5 · 184ms", kind = ChipKind.Cyan, leading = Icons.Default.Memory)
+        Chip(text = modelName.uppercase(), kind = ChipKind.Cyan, leading = Icons.Default.Memory)
         Chip(text = timer)
         if (!compact) {
             Chip(text = "end-to-end encrypted", kind = ChipKind.Violet, leading = Icons.Default.SecurityUpdateGood)
@@ -689,7 +681,7 @@ private fun SubtitleBubble(
             )
             Text("·", color = t.text3, fontSize = 10.sp)
             Text(
-                "live · 184ms",
+                "live",
                 color = t.cyan,
                 fontFamily = MonoFamily,
                 fontSize = 10.sp,
@@ -979,12 +971,12 @@ private fun WaveformBar(
 private fun CallControls(
     listening: Boolean,
     onToggleMic: () -> Unit,
+    onSwap: () -> Unit,
     onEnd: () -> Unit,
     compact: Boolean,
 ) {
     val t = LL.tokens
     var captionsOn by remember { mutableStateOf(true) }
-    var cameraOn by remember { mutableStateOf(false) }
 
     Row(
         modifier = Modifier
@@ -1000,9 +992,9 @@ private fun CallControls(
             onClick = onToggleMic,
         )
         ControlButton(
-            icon = if (cameraOn) Icons.Default.Videocam else Icons.Default.VideocamOff,
-            label = "Camera",
-            onClick = { cameraOn = !cameraOn },
+            icon = Icons.Default.SwapHoriz,
+            label = "Switch",
+            onClick = onSwap,
         )
         ControlButton(
             icon = Icons.Default.ClosedCaption,
@@ -1011,20 +1003,10 @@ private fun CallControls(
             onClick = { captionsOn = !captionsOn },
         )
         ControlButton(
-            icon = Icons.Default.VolumeUp,
-            label = "Speaker",
-            onClick = {},
-        )
-        ControlButton(
             icon = Icons.Default.CallEnd,
             label = "End",
             danger = true,
             onClick = onEnd,
-        )
-        ControlButton(
-            icon = Icons.Default.MoreHoriz,
-            label = "More",
-            onClick = {},
         )
     }
 }
