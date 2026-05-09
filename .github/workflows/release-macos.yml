@@ -1,0 +1,37 @@
+name: Release (macOS)
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build-and-release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      - name: Setup Gradle
+        uses: gradle/gradle-build-action@v3
+
+      - name: Build macOS installer
+        env:
+          LINGUALINK_LLM_BASE_URL: ${{ secrets.LINGUALINK_LLM_BASE_URL }}
+          LINGUALINK_LLM_API_KEY: ${{ secrets.LINGUALINK_LLM_API_KEY }}
+          LINGUALINK_LLM_MODEL: ${{ secrets.LINGUALINK_LLM_MODEL }}
+          LINGUALINK_DEEPGRAM_API_KEY: ${{ secrets.LINGUALINK_DEEPGRAM_API_KEY }}
+        run: ./gradlew :composeApp:packageDmg
+
+      - name: Upload to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="nightly"
+          gh release view "$TAG" &>/dev/null || \
+            gh release create "$TAG" --title "Nightly Build" --prerelease --notes "Automated builds from main branch."
+          gh release upload "$TAG" composeApp/build/compose/binaries/main/dmg/*.dmg --clobber
