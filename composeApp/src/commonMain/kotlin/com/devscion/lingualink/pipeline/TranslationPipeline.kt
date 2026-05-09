@@ -110,13 +110,23 @@ class TranslationPipeline(
     }
 
     private suspend fun processTranslation(originalText: String, confidence: Float?, isVoice: Boolean) {
+        // Snapshot all mutable fields before the first suspension point. configure() can be
+        // called concurrently (from another coroutine / thread) and would overwrite these fields
+        // while we are suspended waiting for the LLM. Without the snapshot, the resulting
+        // ConversationMessage would be stamped with the new session's ID even though the content
+        // belongs to the old session, bypassing the sessionId filter in the ViewModel.
+        val snapSessionId = sessionId
+        val snapSourceLang = sourceLang
+        val snapTargetLang = targetLang
+        val snapSpeaker = currentSpeaker
+
         try {
             _state.value = PipelineState.Translating(originalText)
 
             val translatedText = llmClient.translate(
                 text = originalText,
-                sourceLang = sourceLang,
-                targetLang = targetLang,
+                sourceLang = snapSourceLang,
+                targetLang = snapTargetLang,
                 conversationHistory = conversationHistory.toList()
             )
 
@@ -124,20 +134,20 @@ class TranslationPipeline(
             conversationHistory.add(ChatMessage("assistant", translatedText))
 
             val message = ConversationMessage(
-                sessionId = sessionId,
-                speaker = currentSpeaker,
+                sessionId = snapSessionId,
+                speaker = snapSpeaker,
                 originalText = originalText,
                 translatedText = translatedText,
-                sourceLanguage = sourceLang,
-                targetLanguage = targetLang,
+                sourceLanguage = snapSourceLang,
+                targetLanguage = snapTargetLang,
                 confidence = confidence
             )
             _messages.emit(message)
 
             _state.value = PipelineState.Speaking(translatedText)
-            val voiceModel = deepgramVoiceFor(currentSpeaker, targetLang)
-            println("[Pipeline] TTS voice for $currentSpeaker→$targetLang = $voiceModel")
-            val audioBytes = voiceModel?.let { ttsClient.synthesize(translatedText, it) }
+            val voiceModel = deepgramVoiceFor(snapSpeaker, snapTargetLang)
+            println("[Pipeline] TTS voice for $snapSpeaker→$snapTargetLang = $voiceModel")
+            val audioBytes = ttsClient.synthesize(translatedText, voiceModel)
             println("[Pipeline] TTS bytes received: ${audioBytes?.size ?: "null"}")
             audioBytes?.let { audioPlayer.playAudioStream(it) }
 

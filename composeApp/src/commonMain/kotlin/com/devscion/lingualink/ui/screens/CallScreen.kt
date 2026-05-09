@@ -82,6 +82,7 @@ import com.devscion.lingualink.ui.theme.SharedKeys
 import com.devscion.lingualink.ui.theme.glass
 import com.devscion.lingualink.ui.theme.sharedAcrossScreens
 import com.devscion.lingualink.ui.theme.sharedBoundsAcrossScreens
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 class CallViewModel(
@@ -106,7 +107,14 @@ class CallViewModel(
     private var sessionId = -1L
     private var sessionStartTime = 0L
     private var deepgramApiKey: String = ""
-    private var initialized = false
+    private var dbLoadJob: Job? = null
+    private var collectJob: Job? = null
+
+    init {
+        // Reset pipeline to Idle immediately when this VM is created so the very first
+        // frame of CallScreen never shows stale subtitle/audio-level from a previous session.
+        pipeline.stopVoiceTranslation(audioCapture)
+    }
 
     fun initialize(
         sessionId: Long,
@@ -114,16 +122,16 @@ class CallViewModel(
         targetLang: String,
         config: ConfigManager.AppConfig
     ) {
-        if (initialized && this.sessionId == sessionId) return
-        initialized = true
+        // Only skip re-init if this exact session is already fully set up
+        // (db load done, collector running). Any other state must re-initialize.
+        if (this.sessionId == sessionId && dbLoadJob?.isActive == false && collectJob?.isActive == true) return
+
         this.sessionId = sessionId
         this.sourceLang = sourceLang
         this.targetLang = targetLang
         this.deepgramApiKey = config.deepgramApiKey
         sessionStartTime = System.currentTimeMillis()
 
-        // Defensive: a brand-new VM owns its own list, but reset just in case
-        // initialize is invoked twice for any reason.
         messages.clear()
 
         pipeline.configure(
@@ -133,11 +141,20 @@ class CallViewModel(
             deepgramApiKey = config.deepgramApiKey
         )
 
-        viewModelScope.launch {
-            messages.addAll(messageRepo.getMessagesBySession(sessionId))
+        // Cancel a previous DB-load coroutine before starting a fresh one.
+        // Without this, a stale load for a different session could call addAll()
+        // after clear(), repopulating the list with the wrong messages.
+        dbLoadJob?.cancel()
+        dbLoadJob = viewModelScope.launch {
+            val loaded = messageRepo.getMessagesBySession(sessionId)
+            println("[CallVM] session=$sessionId loaded ${loaded.size} messages from DB")
+            messages.clear() // second clear guards against the race with any cancelled dbLoadJob
+            messages.addAll(loaded)
         }
 
-        viewModelScope.launch {
+        // Cancel any previous collector so only one is ever alive at a time.
+        collectJob?.cancel()
+        collectJob = viewModelScope.launch {
             pipeline.messages.collect { msg ->
                 if (msg.sessionId != sessionId) return@collect
                 messageRepo.insertMessage(msg)

@@ -9,17 +9,21 @@ import kotlinx.coroutines.withContext
 class JvmMessageRepository(private val db: LinguaLinkDB) : MessageRepository {
 
     override suspend fun insertMessage(msg: ConversationMessage): Long = withContext(Dispatchers.IO) {
-        db.linguaLinkQueries.insertMessage(
-            session_id = msg.sessionId,
-            speaker = msg.speaker.name.lowercase(),
-            original_text = msg.originalText,
-            translated_text = msg.translatedText,
-            source_language = msg.sourceLanguage,
-            target_language = msg.targetLanguage,
-            confidence = msg.confidence?.toDouble(),
-            created_at = System.currentTimeMillis()
-        )
-        db.linguaLinkQueries.lastInsertRowId().executeAsOne()
+        var newId = -1L
+        db.linguaLinkQueries.transaction {
+            db.linguaLinkQueries.insertMessage(
+                session_id = msg.sessionId,
+                speaker = msg.speaker.name.lowercase(),
+                original_text = msg.originalText,
+                translated_text = msg.translatedText,
+                source_language = msg.sourceLanguage,
+                target_language = msg.targetLanguage,
+                confidence = msg.confidence?.toDouble(),
+                created_at = System.currentTimeMillis()
+            )
+            newId = db.linguaLinkQueries.lastInsertRowId().executeAsOne()
+        }
+        newId
     }
 
     override suspend fun getMessagesBySession(sessionId: Long): List<ConversationMessage> =
