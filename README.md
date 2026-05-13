@@ -4,6 +4,10 @@
 
 LinguaLink breaks language barriers in live conversations. Speak into your microphone in any of 13 supported languages and hear the translated response within seconds — powered by a streaming ASR → LLM → TTS pipeline running entirely on the desktop with no browser required.
 
+<video src="assets/demo.mp4" controls width="100%">
+  <a href="assets/demo.mp4">Watch the demo</a>
+</video>
+
 ---
 
 ## Features
